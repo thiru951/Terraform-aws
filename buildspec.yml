@@ -3,18 +3,19 @@ version: 0.2
 phases:
   install:
     commands:
-      - echo "Installing Terraform"
-      - curl -O https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
-      - unzip terraform_1.5.7_linux_amd64.zip
+      - yum install -y unzip
+      - curl -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+      - unzip terraform.zip
       - mv terraform /usr/local/bin/
-      - terraform --version
+      - terraform version
 
   build:
     commands:
-      - echo "Terraform Init"
       - terraform init -input=false
-      - echo "Terraform Plan"
-      - terraform plan -out=tfplan
-      - echo "Terraform Apply"
-      - terraform apply -input=false -auto-approve tfplan
+      - terraform plan
+      - terraform apply -auto-approve
+
+artifacts:
+  files:
+    - '**/*'
 

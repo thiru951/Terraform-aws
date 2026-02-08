@@ -14,5 +14,5 @@ phases:
       - echo "Initializing Terraform"
       - terraform init -input=false
       - echo "Applying Terraform"
-      - terraform apply -auto-approve -input=false
+      - terraform destroy -auto-approve -input=false
 

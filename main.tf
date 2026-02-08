@@ -1,14 +1,6 @@
 terraform {
   required_version = "~> 1.5.0"
 
-  backend "s3" {
-    bucket         = "thiru-terraform-state-123"
-    key            = "eks/terraform.tfstate"
-    region         = "ap-south-1"
-    dynamodb_table = "terraform-lock"
-    encrypt        = true
-  }
-
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -18,12 +10,12 @@ terraform {
 }
 
 provider "aws" {
-  region = "ap-south-1"
+  region = var.region
 }
 
-# -------------------
+# ----------------------
 # VPC
-# -------------------
+# ----------------------
 resource "aws_vpc" "thiru_vpc" {
   cidr_block = "10.0.0.0/16"
 
@@ -32,19 +24,32 @@ resource "aws_vpc" "thiru_vpc" {
   }
 }
 
-resource "aws_subnet" "thiru_subnet" {
+# ----------------------
+# Subnets (2 AZs REQUIRED)
+# ----------------------
+resource "aws_subnet" "subnet_a" {
   vpc_id            = aws_vpc.thiru_vpc.id
   cidr_block        = "10.0.1.0/24"
   availability_zone = "ap-south-1a"
 
   tags = {
-    Name = "thiru-subnet"
+    Name = "thiru-subnet-a"
   }
 }
 
-# -------------------
+resource "aws_subnet" "subnet_b" {
+  vpc_id            = aws_vpc.thiru_vpc.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "ap-south-1b"
+
+  tags = {
+    Name = "thiru-subnet-b"
+  }
+}
+
+# ----------------------
 # Security Group
-# -------------------
+# ----------------------
 resource "aws_security_group" "thiru_sg" {
   name   = "thiru-sg"
   vpc_id = aws_vpc.thiru_vpc.id
@@ -64,9 +69,9 @@ resource "aws_security_group" "thiru_sg" {
   }
 }
 
-# -------------------
-# EKS IAM Role
-# -------------------
+# ----------------------
+# IAM Role - EKS Cluster
+# ----------------------
 resource "aws_iam_role" "eks_role" {
   name = "thiru-eks-role"
 
@@ -85,24 +90,24 @@ resource "aws_iam_role_policy_attachment" "eks_policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
-# -------------------
+# ----------------------
 # EKS Cluster
-# -------------------
-resource "aws_eks_cluster" "thiru_aks" {
-  name     = "thiru-aks"
+# ----------------------
+resource "aws_eks_cluster" "thiru_eks" {
+  name     = "thiru-eks"
   role_arn = aws_iam_role.eks_role.arn
 
   vpc_config {
-    subnet_ids         = [aws_subnet.thiru_subnet.id]
+    subnet_ids         = [aws_subnet.subnet_a.id, aws_subnet.subnet_b.id]
     security_group_ids = [aws_security_group.thiru_sg.id]
   }
 
   depends_on = [aws_iam_role_policy_attachment.eks_policy]
 }
 
-# -------------------
-# Node Role
-# -------------------
+# ----------------------
+# IAM Role - Worker Nodes
+# ----------------------
 resource "aws_iam_role" "node_role" {
   name = "thiru-node-role"
 
@@ -126,33 +131,32 @@ resource "aws_iam_role_policy_attachment" "node_policy2" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
-# -------------------
-# Node Group (2 nodes)
-# -------------------
+resource "aws_iam_role_policy_attachment" "node_policy3" {
+  role       = aws_iam_role.node_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+# ----------------------
+# Node Group (2 Nodes)
+# ----------------------
 resource "aws_eks_node_group" "thiru_nodes" {
-  cluster_name    = aws_eks_cluster.thiru_aks.name
+  cluster_name    = aws_eks_cluster.thiru_eks.name
   node_group_name = "thiru-node-group"
   node_role_arn   = aws_iam_role.node_role.arn
-  subnet_ids      = [aws_subnet.thiru_subnet.id]
+  subnet_ids      = [aws_subnet.subnet_a.id, aws_subnet.subnet_b.id]
 
   scaling_config {
     desired_size = 2
-    max_size     = 2
     min_size     = 2
+    max_size     = 2
   }
 
   instance_types = ["t3.medium"]
-}
 
-# -------------------
-# EBS Storage 10GB
-# -------------------
-resource "aws_ebs_volume" "thiru_ebs" {
-  availability_zone = "ap-south-1a"
-  size              = 10
-
-  tags = {
-    Name = "thiru-storage-10gb"
-  }
+  depends_on = [
+    aws_iam_role_policy_attachment.node_policy1,
+    aws_iam_role_policy_attachment.node_policy2,
+    aws_iam_role_policy_attachment.node_policy3
+  ]
 }
 
